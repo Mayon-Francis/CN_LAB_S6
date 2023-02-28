@@ -1,3 +1,5 @@
+// gcc server.c -o server.out && ./server.out 12345
+
 /* A simple server in the internet domain using TCP
    The port number is passed as an argument */
 #include <stdio.h>
@@ -45,9 +47,13 @@ int main(int argc, char *argv[])
      serv_addr.sin_family = AF_INET;
      serv_addr.sin_addr.s_addr = INADDR_ANY;
      serv_addr.sin_port = htons(portno);
-     if (bind(sockfd, (struct sockaddr *)&serv_addr,
+     if (bind(sockfd,
+              (struct sockaddr *)&serv_addr,
               sizeof(serv_addr)) < 0)
+     {
           error("ERROR on binding");
+     }
+     
      listen(sockfd, 5);
      clilen = sizeof(cli_addr);
      while (1)

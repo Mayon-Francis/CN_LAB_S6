@@ -1,3 +1,6 @@
+// // gcc client.c -o client.out && ./client.out 12345
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
