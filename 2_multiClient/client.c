@@ -43,6 +43,15 @@ int main(int argc, char *argv[])
     serv_addr.sin_port = htons(portno);
     if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         error("ERROR connecting");
+
+    read(sockfd, buffer, 255);
+    if (strcmp(buffer, "success") != 0)
+    {
+        printf("Connection failed: %s\n", buffer);
+        exit(0);
+    }
+
+    printf("Connected to server\n");
     printf("Please enter the message: ");
     bzero(buffer, 256);
     fgets(buffer, 255, stdin);

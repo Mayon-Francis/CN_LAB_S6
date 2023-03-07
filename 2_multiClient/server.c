@@ -59,11 +59,15 @@ void* monitorClient(void* args)
     if (n < 0)
     {
         perror("ERROR reading from socket");
+        close(sockFd);
         removeClient(sockFd);
-        // exit(1);
+        return NULL;
     }
     if (n == 0)
     {
+        printf("Client disconnected\n");
+        close(sockFd);
+        removeClient(sockFd);
         return NULL;
     }
     printf("Here is the message: %s", buffer);
@@ -126,10 +130,12 @@ int main()
         }
         int index = addClient(newSockFd);
         if(index == -1) {
+            send(newSockFd, "reject: too many clients", 24, 0);
             close(newSockFd);
             printf("Client rejected\n");
             continue;
         }
+        send(newSockFd, "success", 7, 0);
         pthread_t *thread = (pthread_t *)malloc(sizeof(pthread_t));
         pthread_create(thread, NULL, monitorClient, (void *)&index);
 
