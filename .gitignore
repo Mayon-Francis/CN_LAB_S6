@@ -1,1 +1,6 @@
+# Ignore files with no extention
+*
+!*/
+!*.*
+
 *.out
