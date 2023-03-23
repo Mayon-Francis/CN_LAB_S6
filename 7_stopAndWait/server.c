@@ -67,7 +67,6 @@ int main()
         {
             error("ERROR reading from socket");
             close(newSockFd);
-
         }
         if (n == 0)
         {
@@ -75,7 +74,18 @@ int main()
             close(newSockFd);
             return 0;
         }
-        
+
         printf("Msg: %s\n", buffer);
+    
+        // TODO Fix:This
+        char *token = strtok(buffer, " ");
+
+        /* walk through other tokens */
+        while (token != NULL)
+        {
+            printf("Token: %s", token);
+            token = strtok(NULL, buffer);
+        }
+        send(newSockFd, "ACK", 3, 0);
     }
 }

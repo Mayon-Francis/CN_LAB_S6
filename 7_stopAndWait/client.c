@@ -36,7 +36,7 @@ char* recieveMsg(int sockFd, char buffer[])
         return 0;
     }
 
-    strcat(buffer, '\0');
+    printf("Message received: %s", buffer);
     return buffer;
 }
 
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
     {
         error("ERROR opening socket");
     }
-    server = gethostbyname(argv[1]);
+    server = gethostbyname(host);
     if (server == NULL)
     {
         fprintf(stderr, "ERROR, no such host\n");
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < frameCount; i++)
     {
-        strcpy(buffer, "FRAME " + '0' + i);
+        strcpy(buffer, "FRAME 1");
         send(sockfd, buffer, strlen(buffer), 0);
         strcpy(buffer, recieveMsg(sockfd, buffer));
         printf("Message received: %s \n", buffer);
