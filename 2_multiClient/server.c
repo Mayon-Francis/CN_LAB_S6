@@ -20,7 +20,7 @@ int cliSockFds[MAX_CLIENTS], cliCount = -1;
 /**
  * Add a client to the array of client socket fds
  * Returns the index of the client socket fd in the array
-*/
+ */
 int addClient(int sockFd)
 {
     for (int i = 0; i < MAX_CLIENTS; i++)
@@ -49,7 +49,7 @@ void removeClient(int sockFd)
     return;
 }
 
-void* monitorClient(void* args)
+void *monitorClient(void *args)
 {
     int *index = args;
     int sockFd = cliSockFds[*index];
@@ -76,7 +76,9 @@ void* monitorClient(void* args)
     {
         perror("ERROR writing to socket");
         // exit(1);
-    } else {
+    }
+    else
+    {
         printf("Message sent\n");
     }
     close(sockFd);
@@ -129,7 +131,8 @@ int main()
             exit(1);
         }
         int index = addClient(newSockFd);
-        if(index == -1) {
+        if (index == -1)
+        {
             send(newSockFd, "reject: too many clients", 24, 0);
             close(newSockFd);
             printf("Client rejected\n");
@@ -138,7 +141,5 @@ int main()
         send(newSockFd, "success", 7, 0);
         pthread_t *thread = (pthread_t *)malloc(sizeof(pthread_t));
         pthread_create(thread, NULL, monitorClient, (void *)&index);
-
     }
-
 }
