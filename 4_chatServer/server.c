@@ -44,6 +44,18 @@ int sendMessageToSockFd(char msg[], int sockFd)
     return ret;
 }
 
+int sendMessageToAllClients(char msg[], int exceptIndex)
+{
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (cliSockFds[i] != -1 && i != exceptIndex)
+        {
+            sendMessageToSockFd(msg, cliSockFds[i]);
+        }
+    }
+}
+
 /**
  * Add a client to the array of client socket fds
  * Returns the index of the client socket fd in the array
@@ -116,6 +128,7 @@ void *monitorClient(void *args)
         if (strncmp(buffer, "username:", 9) == 0)
         {
             printf("%s joined the chat!\n", buffer + 9);
+            sendMessageToAllClients(buffer + 9, *index);
             sendMessageToSockFd("ack:username:success", sockFd);
         }
 

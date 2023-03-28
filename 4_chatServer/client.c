@@ -43,7 +43,7 @@ int sendMessage(char msg[], char *ackMsg)
      */
     msg[strcspn(msg, "\n")] = 0;
     if (debug)
-        printf("Sending message: %s", msg);
+        printf("Sending message: %s\n", msg);
     int ret = send(sockFd, msg, strlen(msg), 0);
 
     if (ret < 0)
@@ -52,7 +52,6 @@ int sendMessage(char msg[], char *ackMsg)
     }
     char buffer[MAX_MSG_LEN];
     getMessage(buffer, sockFd);
-    printf("Message recieved: %s", buffer);
 
     if (strncmp(buffer, "ack:", 4) != 0)
     {
@@ -135,12 +134,14 @@ int main(int argc, char *argv[])
     }
 
     initConnection(username);
-    printf("Please enter the message: ");
-    bzero(buffer, 256);
-    fflush(stdin);
-    fgets(buffer, 255, stdin);
+    while (1)
+    {
+        printf("Enter your message: ");
+        bzero(buffer, 256);
+        fgets(buffer, 255, stdin);
+        sendChatMessage(buffer);
+    }
 
-    sendChatMessage(buffer);
     // strcpy(payload, "[");
     // strcat(payload, username);
     // strcat(payload, "]: ");
@@ -149,3 +150,7 @@ int main(int argc, char *argv[])
     // close(sockfd);
     return 0;
 }
+
+/**
+ * Run two threads, one for sending messages and one for receiving messages
+*/
