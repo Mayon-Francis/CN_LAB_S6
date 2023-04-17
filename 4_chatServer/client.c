@@ -8,11 +8,25 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <pthread.h>
 
-int sockFd, portno, n;
+int sockFd, portno, n, msgId = 0;
 char username[256];
 #define MAX_MSG_LEN 256
 #define debug 1
+
+struct message {
+    int id;
+    char payload[256];
+    char sender[256];
+    int isOutgoing;
+    int sentSuccess;
+};
+
+/**
+ * Implement circular buffer later
+ */
+struct message messages[1000];
 
 void error(const char *msg)
 {
@@ -20,10 +34,10 @@ void error(const char *msg)
     exit(0);
 }
 
-void getMessage(char buffer[], int sockFd)
+void getMessage(char buffer[], int sockFd, int peek)
 {
     bzero(buffer, MAX_MSG_LEN);
-    int n = recv(sockFd, buffer, MAX_MSG_LEN - 1, 0);
+    int n = recv(sockFd, buffer, MAX_MSG_LEN - 1, (peek ? MSG_PEEK : 0));
     if (n < 0)
     {
         perror("ERROR reading from socket");
@@ -51,7 +65,7 @@ int sendMessage(char msg[], char *ackMsg)
         error("ERROR writing to socket");
     }
     char buffer[MAX_MSG_LEN];
-    getMessage(buffer, sockFd);
+    getMessage(buffer, sockFd, 0);
 
     if (strncmp(buffer, "ack:", 4) != 0)
     {
@@ -75,23 +89,71 @@ void initConnection(char username[])
     printf("Connected to chat server\n");
 }
 
-void sendChatMessage(char msg[])
+void addMessageToStore(char msg[], int isOutgoing, char sender[])
 {
-    char payload[256] = "chat:", ackMsg[MAX_MSG_LEN];
-    strcat(payload, "[");
-    strcat(payload, username);
-    strcat(payload, "]: ");
-    strcat(payload, msg);
+    messages[msgId].isOutgoing = isOutgoing;
+    strcpy(messages[msgId].payload, msg);
+    strcpy(messages[msgId].sender, sender);
+    messages[msgId].sentSuccess = 0;
+    messages[msgId].id = msgId;
+    printf("Id: %d", msgId);
+    msgId++;
+}
+
+void sendChatMessage(char msg[200])
+{
+    /**
+     * Format: chat:[id]:[username]:message 
+     */
+    char payload[MAX_MSG_LEN], ackMsg[MAX_MSG_LEN];
+    int ret = snprintf(payload, MAX_MSG_LEN, "chat:[%d]:[%s]:%s", msgId, username, msg);
+    if( ret < 0)
+        error("Error in snprintf");
+    char expectdAck[MAX_MSG_LEN];
+    ret = snprintf(expectdAck, MAX_MSG_LEN, "chat:[%d]", msgId);
+    if( ret < 0)
+        error("Error in snprintf");
+    addMessageToStore(payload, 1, username);
+
     sendMessage(payload, ackMsg);
-    if (strcmp(ackMsg, "chat:success") != 0)
+    if (strcmp(ackMsg, expectdAck) != 0)
     {
-        printf("Chat message failed: %s\n", ackMsg);
+        printf("Chat message failed: Got: %s. Expected: %s\n", ackMsg, expectdAck);
         exit(0);
+    }
+}
+
+void *getIncomingMessages(void *args)
+{
+    while (1)
+    {
+        char buffer[MAX_MSG_LEN];
+        getMessage(buffer, sockFd, 1);
+
+        // printf("Peeked message: %s", buffer);
+        if(strncmp(buffer, "ack:", 4) == 0)
+        {
+            // printf("Got ack: %s", buffer);
+            continue;
+        } else {
+            getMessage(buffer, sockFd, 0);
+            if(strncmp(buffer, "chat:", 5) == 0)
+            {
+                printf("\n%s\n", buffer+5);
+            } else {
+                printf("\n%s\n", buffer);
+            }
+        }
+
+        // close(sockFd);
+        // removeClient(sockFd);
+        // return NULL;
     }
 }
 
 int main(int argc, char *argv[])
 {
+    setbuf(stdout, NULL);
     struct sockaddr_in serv_addr;
     struct hostent *server;
 
@@ -134,6 +196,8 @@ int main(int argc, char *argv[])
     }
 
     initConnection(username);
+    pthread_t *thread = (pthread_t *)malloc(sizeof(pthread_t));
+    pthread_create(thread, NULL, getIncomingMessages, NULL);
     while (1)
     {
         printf("Enter your message: ");
@@ -152,5 +216,6 @@ int main(int argc, char *argv[])
 }
 
 /**
- * Run two threads, one for sending messages and one for receiving messages
+ * Run two threads, one for sending messages and one for receiving messages - ok
+ * TODO: prettify the output
 */
