@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <arpa/inet.h>
 
 int sockFd, portno, n, msgId = 0;
 char username[256];
@@ -151,6 +152,13 @@ void *getIncomingMessages(void *args)
     }
 }
 
+int isValidIpAddress(char *ipAddress)
+{
+    struct sockaddr_in sa;
+    int result = inet_pton(AF_INET, ipAddress, &(sa.sin_addr));
+    return result != 0;
+}
+
 int main(int argc, char *argv[])
 {
     setbuf(stdout, NULL);
@@ -160,7 +168,7 @@ int main(int argc, char *argv[])
     char buffer[256];
     if (argc < 3)
     {
-        fprintf(stderr, "usage %s hostname port\n", argv[0]);
+        fprintf(stderr, "usage %s hostname/ip port\n", argv[0]);
         exit(0);
     }
 
@@ -173,22 +181,34 @@ int main(int argc, char *argv[])
 
     portno = atoi(argv[2]);
     sockFd = socket(AF_INET, SOCK_STREAM, 0);
-    printf("sockfd: %d\n", sockFd);
     if (sockFd < 0)
         error("ERROR opening socket");
-    server = gethostbyname(argv[1]);
-    if (server == NULL)
-    {
-        fprintf(stderr, "ERROR, no such host\n");
-        exit(0);
-    }
+    
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
-    if (connect(sockFd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    if (isValidIpAddress(argv[1]))
+    {
+        serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    } else {
+        server = gethostbyname(argv[1]);
+        if (server == NULL)
+        {
+            error("ERROR, no such host\n");
+        }
+        serv_addr.sin_addr.s_addr = *((unsigned long *)server->h_addr_list[0]);
+    }
+    printf("Server address: %s\n", inet_ntoa(serv_addr.sin_addr));
+    if(connect(sockFd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         error("ERROR connecting");
+    }
 
-    read(sockFd, buffer, 255);
+    if(read(sockFd, buffer, 255) < 0)
+    {
+        perror("ERROR reading from socket");
+        close(sockFd);
+    }
+
     if (strcmp(buffer, "success") != 0)
     {
         printf("Connection failed: %s\n", buffer);
