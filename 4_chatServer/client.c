@@ -1,4 +1,4 @@
-// gcc client.c -o client.out && ./client.out localhost 5000
+// gcc client.c -pthread -o client.out && ./client.out localhost 5000
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,13 +10,41 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <unistd.h>
+#include <termios.h>
+#include <sys/ioctl.h>
 
+char getch(void)
+{
+    char buf = 0;
+    struct termios old = {0};
+    fflush(stdout);
+    if (tcgetattr(0, &old) < 0)
+        perror("tcsetattr()");
+    old.c_lflag &= ~ICANON;
+    old.c_lflag &= ~ECHO;
+    old.c_cc[VMIN] = 1;
+    old.c_cc[VTIME] = 0;
+    if (tcsetattr(0, TCSANOW, &old) < 0)
+        perror("tcsetattr ICANON");
+    if (read(0, &buf, 1) < 0)
+        perror("read()");
+    old.c_lflag |= ICANON;
+    old.c_lflag |= ECHO;
+    if (tcsetattr(0, TCSADRAIN, &old) < 0)
+        perror("tcsetattr ~ICANON");
+    printf("%c", buf);
+    return buf;
+}
+
+#define MAX_MSG_LEN 256
+#define debug 0
 int sockFd, portno, n, msgId = 0;
 char username[256];
-#define MAX_MSG_LEN 256
-#define debug 1
+char inputBuffer[MAX_MSG_LEN];
 
-struct message {
+struct message
+{
     int id;
     char payload[256];
     char sender[256];
@@ -102,36 +130,67 @@ void addMessageToStore(char msg[], int isOutgoing, char sender[])
     msgId++;
 }
 
+unsigned get_term_width(void)
+{
+    struct winsize ws;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+    return ws.ws_col;
+}
+
 void printMessages()
 {
-    system("clear");
+
+    if (!debug)
+        system("clear");
     int i;
+
+    int cols = get_term_width();
+    char outgoingSpaces[MAX_MSG_LEN] = "\0", serverSpaces[MAX_MSG_LEN] = "\0";
+    for (i = 0; i <= cols / 2; i++)
+    {
+        strcat(outgoingSpaces, " ");
+    }
+    for (i = 0; i <= cols / 4; i++)
+    {
+        strcat(serverSpaces, " ");
+    }
     for (i = 0; i < msgId; i++)
     {
+        char payload[MAX_MSG_LEN];
+        int ret = snprintf(payload, MAX_MSG_LEN, "[%s]:%s", messages[i].sender, messages[i].payload);
+        if (ret < 0)
+            error("Error in snprintf");
         if (messages[i].isOutgoing)
         {
-            printf("[%s]: %s\n", username, messages[i].payload);
-        } else {
-            printf("%s: %s\n", messages[i].sender, messages[i].payload);
+            printf("\n%s %s", outgoingSpaces, payload);
         }
-
+        else if(strcmp(messages[i].sender, "server") == 0)
+        {
+            printf("\n%s %s", serverSpaces, messages[i].payload);
+        }
+        else
+        {
+            printf("\n%s", payload);
+        }
     }
+
+    printf("\n\n\nEnter your message: %s", inputBuffer);
 }
 
 void sendChatMessage(char msg[200])
 {
     /**
-     * Format: chat:[id]:[username]:message 
+     * Format: chat:[id]:[username]:message
      */
     char payload[MAX_MSG_LEN], ackMsg[MAX_MSG_LEN];
     int ret = snprintf(payload, MAX_MSG_LEN, "chat:[%d]:[%s]:%s", msgId, username, msg);
-    if( ret < 0)
+    if (ret < 0)
         error("Error in snprintf");
     char expectdAck[MAX_MSG_LEN];
     ret = snprintf(expectdAck, MAX_MSG_LEN, "chat:[%d]", msgId);
-    if( ret < 0)
+    if (ret < 0)
         error("Error in snprintf");
-    addMessageToStore(payload, 1, username);
+    addMessageToStore(msg, 1, username);
 
     sendMessage(payload, ackMsg);
     if (strcmp(ackMsg, expectdAck) != 0)
@@ -148,19 +207,32 @@ void *getIncomingMessages(void *args)
         char buffer[MAX_MSG_LEN];
         bzero(buffer, MAX_MSG_LEN);
         getMessage(buffer, sockFd, 1);
+        if (debug)
+            printf("\nPeeked Raw message: %s\n", buffer);
 
-        // printf("Peeked message: %s", buffer);
-        if(strncmp(buffer, "ack:", 4) == 0)
+        if (strncmp(buffer, "ack:", 4) == 0)
         {
-            // printf("Got ack: %s", buffer);
             continue;
-        } else {
+        }
+        else
+        {
             getMessage(buffer, sockFd, 0);
             char sender[50], message[MAX_MSG_LEN];
-            if(strncmp(buffer, "chat:", 5) == 0)
+            if (strncmp(buffer, "chat:", 5) == 0)
             {
-                sscanf(buffer, "chat:[%s]:%s", sender, message);
-            } else {
+                char *strippedMsg = strtok(buffer + 6, "]");
+                if (strippedMsg != NULL)
+                    strcpy(sender, strippedMsg);
+                else
+                    error("Error in parsing sender");
+                strippedMsg = strtok(NULL, ":");
+                if (strippedMsg != NULL)
+                    strcpy(message, strippedMsg);
+                else
+                    error("Error in parsing message");
+            }
+            else
+            {
                 strcpy(sender, "server");
                 strcpy(message, buffer);
             }
@@ -205,14 +277,16 @@ int main(int argc, char *argv[])
     sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockFd < 0)
         error("ERROR opening socket");
-    
+
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
     if (isValidIpAddress(argv[1]))
     {
         serv_addr.sin_addr.s_addr = inet_addr(argv[1]);
-    } else {
+    }
+    else
+    {
         server = gethostbyname(argv[1]);
         if (server == NULL)
         {
@@ -221,11 +295,12 @@ int main(int argc, char *argv[])
         serv_addr.sin_addr.s_addr = *((unsigned long *)server->h_addr_list[0]);
     }
     printf("Server address: %s\n", inet_ntoa(serv_addr.sin_addr));
-    if(connect(sockFd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    if (connect(sockFd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    {
         error("ERROR connecting");
     }
 
-    if(read(sockFd, buffer, 255) < 0)
+    if (read(sockFd, buffer, 255) < 0)
     {
         perror("ERROR reading from socket");
         close(sockFd);
@@ -240,24 +315,22 @@ int main(int argc, char *argv[])
     initConnection(username);
     pthread_t *thread = (pthread_t *)malloc(sizeof(pthread_t));
     pthread_create(thread, NULL, getIncomingMessages, NULL);
+    char ch[2] = "\0\0";
+    printMessages();
     while (1)
     {
-        printf("Enter your message: ");
-        bzero(buffer, 256);
-        fgets(buffer, 255, stdin);
-        sendChatMessage(buffer);
+        ch[0] = getch();
+        if (ch[0] == '\n')
+        {
+            sendChatMessage(inputBuffer);
+            bzero(inputBuffer, 256);
+            ch[0] = '\0';
+            printMessages();
+        }
+        else
+        {
+            strcat(inputBuffer, ch);
+        }
     }
-
-    // strcpy(payload, "[");
-    // strcat(payload, username);
-    // strcat(payload, "]: ");
-    // strcat(payload, buffer);
-    // sendMessage(payload);
-    // close(sockfd);
     return 0;
 }
-
-/**
- * Run two threads, one for sending messages and one for receiving messages - ok
- * TODO: prettify the output
-*/
