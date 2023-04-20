@@ -1,4 +1,5 @@
-// gcc client.c -pthread -o client.out && ./client.out localhost 5000
+// gcc client.c -pthread -o client && ./client localhost 5000
+// gcc client.c -pthread -o client && ./client 127.0.0.1 5000
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,13 +71,13 @@ void getMessage(char buffer[], int sockFd, int peek)
     int n = recv(sockFd, buffer, MAX_MSG_LEN - 1, (peek ? MSG_PEEK : 0));
     if (n < 0)
     {
-        perror("ERROR reading from socket");
+        error("ERROR reading from socket\n");
         close(sockFd);
     }
     if (n == 0)
     {
-        printf("Server disconnected\n");
         close(sockFd);
+        error("Server disconnected\n");
     }
 }
 

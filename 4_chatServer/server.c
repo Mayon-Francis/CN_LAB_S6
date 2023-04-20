@@ -7,13 +7,16 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <signal.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <ifaddrs.h>
 
 #define MAX_CLIENTS 5
 #define PORT 5000
 #define MAX_MSG_LEN 256
+#define debug 0
 
 int cliSockFds[MAX_CLIENTS], cliCount = -1, masterSockFd;
 char usernames[MAX_CLIENTS][50];
@@ -29,13 +32,25 @@ void interruptHandler(int sig)
 {
     printf("Caught signal %d \n", sig);
     printf("Closing all connections \n");
+
+    /**
+     *  Set linger option to 0 so that close() will return immediately and
+     *  not wait for the client to close the connection
+     *  Also, server port will not wait in TIME_WAIT state,
+     *  thus letting the server bind to the same port again immediately
+     */
+    struct linger so_linger;
+    so_linger.l_onoff = 1;
+    so_linger.l_linger = 0;
     for (int i = 0; i < MAX_CLIENTS; i++)
     {
         if (cliSockFds[i] != -1)
         {
+            setsockopt(cliSockFds[i], SOL_SOCKET, SO_LINGER, &so_linger, sizeof(so_linger));
             close(cliSockFds[i]);
         }
     }
+    setsockopt(masterSockFd, SOL_SOCKET, SO_LINGER, &so_linger, sizeof(so_linger));
     close(masterSockFd);
     exit(0);
 }
@@ -53,15 +68,13 @@ int sendMessageToSockFd(char msg[], int sockFd)
 
 int sendMessageToAllClients(char msg[], int exceptIndex)
 {
-    printf("Sending message to all clients except %d\n", exceptIndex);
+    if (debug)
+        printf("Sending message to all clients except %d\n", exceptIndex);
     for (int i = 0; i < MAX_CLIENTS; i++)
     {
         if (cliSockFds[i] != -1 && i != exceptIndex)
         {
             sendMessageToSockFd(msg, cliSockFds[i]);
-        } else if (i == exceptIndex)
-        {
-            printf("Not sending to %d with sockFd %d\n", i, cliSockFds[i]);
         }
     }
 }
@@ -106,7 +119,7 @@ void disconnectClient(int index)
     int ret = sprintf(broadcastMsg, "%s has disconnected", usernames[index]);
     if (ret < 0)
         error("ERROR in sprintf");
-    
+
     sendMessageToAllClients(broadcastMsg, index);
 }
 
@@ -115,7 +128,8 @@ void *monitorClient(void *args)
     int *indexPtr = args;
     int index = *indexPtr;
     int sockFd = cliSockFds[index];
-    printf("Monitoring client: %d with sockfd %d\n", index, sockFd);
+    if (debug)
+        printf("Monitoring client: %d with sockfd %d\n", index, sockFd);
     while (1)
     {
         char buffer[MAX_MSG_LEN];
@@ -176,7 +190,6 @@ void *monitorClient(void *args)
             if (ret < 0)
                 error("Error in snprintf");
 
-            printf("Broadcast: %s\n", broadcast);
             sendMessageToAllClients(broadcast, index);
 
             /**
@@ -185,13 +198,90 @@ void *monitorClient(void *args)
             char payload[MAX_MSG_LEN] = "ack:chat:";
             strcat(payload, msgId);
             sendMessageToSockFd(payload, sockFd);
-
         }
 
         // close(sockFd);
         // removeClient(sockFd);
         // return NULL;
     }
+}
+
+void printServerIpAddresses()
+{
+    // credits for interface ip adress: 
+    // https://dev.to/fmtweisszwerg/cc-how-to-get-all-interface-addresses-on-the-local-device-3pki
+    printf("\nServer IP addresses:\n");
+    struct ifaddrs *ptr_ifaddrs = NULL;
+
+    int result = getifaddrs(&ptr_ifaddrs);
+    if (result != 0)
+    {
+        error("getifaddrs()` failed: ");
+    }
+    
+    for (
+        struct ifaddrs *ptr_entry = ptr_ifaddrs;
+        ptr_entry != NULL;
+        ptr_entry = ptr_entry->ifa_next)
+    {
+        char ipaddress_human_readable_form[256];
+        char netmask_human_readable_form[256];
+
+        char interface_name[256];
+        strcpy(interface_name, ptr_entry->ifa_name) ;
+        sa_family_t address_family = ptr_entry->ifa_addr->sa_family;
+        if (address_family == AF_INET)
+        {
+            // IPv4
+
+            // Be aware that the `ifa_addr`, `ifa_netmask` and `ifa_data` fields might contain nullptr.
+            // Dereferencing nullptr causes "Undefined behavior" problems.
+            // So it is need to check these fields before dereferencing.
+            if (ptr_entry->ifa_addr != NULL)
+            {
+                char buffer[INET_ADDRSTRLEN] = {
+                    0,
+                };
+                inet_ntop(
+                    address_family,
+                    &((struct sockaddr_in *)(ptr_entry->ifa_addr))->sin_addr,
+                    buffer,
+                    INET_ADDRSTRLEN);
+
+                strcpy(ipaddress_human_readable_form, buffer);
+            }
+            printf("\n%s: IP address = %s", interface_name, ipaddress_human_readable_form);
+        }
+        else if (address_family == AF_INET6)
+        {
+            //Temporarily disabling printing of IPv6 addresses
+            continue;
+            // IPv6
+            uint32_t scope_id = 0;
+            if (ptr_entry->ifa_addr != NULL)
+            {
+                char buffer[INET6_ADDRSTRLEN] = {
+                    0,
+                };
+                inet_ntop(
+                    address_family,
+                    &((struct sockaddr_in6 *)(ptr_entry->ifa_addr))->sin6_addr,
+                    buffer,
+                    INET6_ADDRSTRLEN);
+
+                strcpy(ipaddress_human_readable_form,buffer);
+                scope_id = ((struct sockaddr_in6 *)(ptr_entry->ifa_addr))->sin6_scope_id;
+            }
+            printf("\n%s: IP address = %s", interface_name, ipaddress_human_readable_form);
+        }
+        else
+        {
+            // AF_UNIX, AF_UNSPEC, AF_PACKET etc.
+            // If ignored, delete this section.
+        }
+    }
+
+    freeifaddrs(ptr_ifaddrs);
 }
 
 int main()
@@ -227,7 +317,8 @@ int main()
         exit(1);
     }
 
-    printf("Server is listening on port %d\n", PORT);
+    printServerIpAddresses();
+    printf("\n\n\nServer is listening on port %d\n", PORT);
 
     while (1)
     {
@@ -240,7 +331,8 @@ int main()
             exit(1);
         }
         int index = addClient(newSockFd);
-        printf("\nClient added at index %d\n", index);
+        if (debug)
+            printf("\nClient added at index %d\n", index);
         if (index == -1)
         {
             send(newSockFd, "reject: too many clients", 24, 0);
