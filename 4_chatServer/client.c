@@ -28,6 +28,7 @@ struct message {
  * Implement circular buffer later
  */
 struct message messages[1000];
+int msgStart = 0, msgEnd = 0;
 
 void error(const char *msg)
 {
@@ -101,6 +102,22 @@ void addMessageToStore(char msg[], int isOutgoing, char sender[])
     msgId++;
 }
 
+void printMessages()
+{
+    system("clear");
+    int i;
+    for (i = 0; i < msgId; i++)
+    {
+        if (messages[i].isOutgoing)
+        {
+            printf("[%s]: %s\n", username, messages[i].payload);
+        } else {
+            printf("%s: %s\n", messages[i].sender, messages[i].payload);
+        }
+
+    }
+}
+
 void sendChatMessage(char msg[200])
 {
     /**
@@ -129,6 +146,7 @@ void *getIncomingMessages(void *args)
     while (1)
     {
         char buffer[MAX_MSG_LEN];
+        bzero(buffer, MAX_MSG_LEN);
         getMessage(buffer, sockFd, 1);
 
         // printf("Peeked message: %s", buffer);
@@ -138,12 +156,16 @@ void *getIncomingMessages(void *args)
             continue;
         } else {
             getMessage(buffer, sockFd, 0);
+            char sender[50], message[MAX_MSG_LEN];
             if(strncmp(buffer, "chat:", 5) == 0)
             {
-                printf("\n%s\n", buffer+5);
+                sscanf(buffer, "chat:[%s]:%s", sender, message);
             } else {
-                printf("\n%s\n", buffer);
+                strcpy(sender, "server");
+                strcpy(message, buffer);
             }
+            addMessageToStore(message, 0, sender);
+            printMessages();
         }
 
         // close(sockFd);
