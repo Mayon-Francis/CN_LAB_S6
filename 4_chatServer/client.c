@@ -38,6 +38,56 @@ char getch(void)
     return buf;
 }
 
+struct escapedCh
+{
+    char c;
+    char escaped[2];
+};
+
+struct escapedCh escapedChars[] = {
+    {':', "\\:"},
+    {'[', "\\["},
+    {']', "\\]"},
+};
+
+void escape(char *msg)
+{
+    int i, j, k;
+    for (i = 0; i < strlen(msg); i++)
+    {
+        for (j = 0; j < sizeof(escapedChars) / sizeof(struct escapedCh); j++)
+        {
+            if (msg[i] == escapedChars[j].c)
+            {
+                for (k = strlen(msg); k >= i; k--)
+                {
+                    msg[k + 1] = msg[k];
+                }
+                msg[i] = '\\';
+                i++;
+            }
+        }
+    }
+}
+
+void unescape(char *msg)
+{
+    int i, j, k;
+    for (i = 0; i < strlen(msg); i++)
+    {
+        for (j = 0; j < sizeof(escapedChars) / sizeof(struct escapedCh); j++)
+        {
+            if (strncmp(msg + i, escapedChars[j].escaped, 2) == 0)
+            {
+                for (k = i; k < strlen(msg); k++)
+                {
+                    msg[k] = msg[k + 1];
+                }
+            }
+        }
+    }
+}
+
 #define MAX_MSG_LEN 256
 #define debug 0
 int sockFd, portno, n, msgId = 0;
@@ -96,6 +146,12 @@ int sendMessage(char msg[], char *ackMsg)
         error("ERROR writing to socket");
     }
     char buffer[MAX_MSG_LEN];
+    while (1)
+    {
+        getMessage(buffer, sockFd, 1);
+        if (strncmp(buffer, "ack:", 4) == 0)
+            break;
+    }
     getMessage(buffer, sockFd, 0);
 
     if (strncmp(buffer, "ack:", 4) != 0)
@@ -122,6 +178,11 @@ void initConnection(char username[])
 
 void addMessageToStore(char msg[], int isOutgoing, char sender[])
 {
+    if (debug)
+        printf("Adding message (raw) to store: %s\n", msg);
+    unescape(msg);
+    if (debug)
+        printf("Adding message (unescaped) to store: %s\n", msg);
     messages[msgId].isOutgoing = isOutgoing;
     strcpy(messages[msgId].payload, msg);
     strcpy(messages[msgId].sender, sender);
@@ -165,7 +226,7 @@ void printMessages()
         {
             printf("\n%s %s", outgoingSpaces, payload);
         }
-        else if(strcmp(messages[i].sender, "server") == 0)
+        else if (strcmp(messages[i].sender, "server") == 0)
         {
             printf("\n%s %s", serverSpaces, messages[i].payload);
         }
@@ -183,6 +244,11 @@ void sendChatMessage(char msg[200])
     /**
      * Format: chat:[id]:[username]:message
      */
+    if (debug)
+        printf("Raw chat message is: %s", msg);
+    escape(msg);
+    if (debug)
+        printf("Escaped chat message is: %s", msg);
     char payload[MAX_MSG_LEN], ackMsg[MAX_MSG_LEN];
     int ret = snprintf(payload, MAX_MSG_LEN, "chat:[%d]:[%s]:%s", msgId, username, msg);
     if (ret < 0)
@@ -226,7 +292,19 @@ void *getIncomingMessages(void *args)
                     strcpy(sender, strippedMsg);
                 else
                     error("Error in parsing sender");
-                strippedMsg = strtok(NULL, ":");
+                if (debug)
+                {
+                    printf("Stripped Message after sender: %s", strippedMsg + strlen(strippedMsg) + 1);
+                }
+
+                /**
+                 * strtok modifies the original string,
+                 * and adds a null character at the end of the token.
+                 * +1 to skip the null character
+                 * +1 to skip the colon
+                 */
+                strippedMsg = strippedMsg + strlen(strippedMsg) + 1 + 1;
+
                 if (strippedMsg != NULL)
                     strcpy(message, strippedMsg);
                 else
@@ -321,11 +399,19 @@ int main(int argc, char *argv[])
     while (1)
     {
         ch[0] = getch();
+        if (debug)
+            printf("Got char: %d\n", (int)ch[0]);
         if (ch[0] == '\n')
         {
             sendChatMessage(inputBuffer);
             bzero(inputBuffer, 256);
             ch[0] = '\0';
+            printMessages();
+        }
+        // Backspace
+        else if ((int)ch[0] == 127 && strlen(inputBuffer) > 0)
+        {
+            inputBuffer[strlen(inputBuffer) - 1] = '\0';
             printMessages();
         }
         else

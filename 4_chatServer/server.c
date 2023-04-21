@@ -184,7 +184,10 @@ void *monitorClient(void *args)
              *  Broadcast format: chat:[username]:message
              */
             char *username = strtok(NULL, ":");
-            char *msg = strtok(NULL, ":");
+            /**
+             * +1 for the first colon
+             */
+            char *msg = username + strlen(username) + 1;
             char broadcast[MAX_MSG_LEN];
             int ret = snprintf(broadcast, MAX_MSG_LEN, "chat:%s:%s", username, msg);
             if (ret < 0)
